@@ -1,6 +1,6 @@
 # SERHA_treatmentTrajectories
 
-##Metodologia i eines
+## Metodologia i eines
 
 Aquest projecte s’emmarca dins del projecte **SERhA** i té com a objectiu la gestió, anàlisi i visualització dels itineraris farmacològics de pacients a partir de dades clíniques.
 
