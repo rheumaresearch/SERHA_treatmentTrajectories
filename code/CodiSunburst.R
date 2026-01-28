@@ -1,17 +1,15 @@
-#########################################################
-# 1.Codi sunburst                                       #
-#########################################################
+#####################################
+#   BLOC 1: processament de dades   #
+#####################################
+
 
 rm(list=ls())
 .res <- paste0(.res0,"CodiSunburst/")
 dir.create(.res,F,T)
 
-#########################################################
-# Objectiu: current treatment                           #
-#########################################################
-#Netejar tot l'enviroment i carregar dataset
 
-rm(list=ls())
+
+# 1.1 Tractaments actuals
 data <- readRDS(paste0(.dat,"currentTrt.0.rds"))
 df <- data$dataset
 
@@ -27,7 +25,6 @@ subset_data <- df %>%
 #donarli a la variable start_date un valor de data
 subset_data$start_date <- as.Date(subset_data$start_date)
 
-# FILTRAR PACIENTS
 # Pacients amb algun tractament biològic
 patients_with_treatment <- subset_data %>%
   filter(!is.na(treatment_concept_name) & treatment_concept_name != "") %>%
@@ -49,9 +46,9 @@ final_data <- subset_data %>%
 rm(list = setdiff(ls(), c("df", "final_data")))
 saveRDS(final_data,paste0(.res,"currentTrt.processed.rds"))
 
-#########################################################
-# 2. Previous treatment                                 #
-#########################################################
+
+
+# 1.2. Tractaments previs                              
 rm(list=ls())
 data <- readRDS(paste0(.dat,"prevTrt.0.rds"))
 df <- data$dataset
@@ -65,16 +62,12 @@ subset_data <- df %>%
     end_date = prev_treat_bio_end
   )
 
-# Filtrar para eliminar filas con tratamiento NA o vacío
 final_data <- subset_data %>%
   filter(!is.na(treatment_concept_name) & treatment_concept_name != "") %>%
   distinct(subject_id, treatment_concept_name, .keep_all = TRUE)
 
 # Limpiar entorno excepto df, subset_data y final_data
 rm(list = setdiff(ls(), c("df", "subset_data", "final_data")))
-##########################################################
-# Dates pacients en dies     Prova trajectories erronies #
-##########################################################
 
 # Netejar dates buides o que tenen "NA"
 df$prev_treat_bio_start[df$prev_treat_bio_start == "" | df$prev_treat_bio_start == "NA"] <- NA
@@ -88,7 +81,6 @@ final_data <- final_data %>%
   filter(!is.na(start_date) & !is.na(end_date)) %>%
   mutate(difference_days = as.numeric(end_date - start_date))
 
-
 #### Modificació, 2025-10-13. Data de tractament verificada i corregida.####
 s <- final_data$subject_id=="SE_EPI09" & final_data$treatment_concept_name == "Sarilumab"
 final_data[s,"end_date"] <- "2024-02-20"
@@ -98,19 +90,8 @@ final_data[ss,"end_date"] <- "2022-08-25"
 
 saveRDS(final_data,paste0(.res,"prevTrt.processed.rds"))
 
-#########################################################
 
-selected_patients <- c("SE_EPI09", "SE_YPI13")
-
-final_data_filtered <- final_data %>%
-  filter(subject_id %in% selected_patients)
-
-write.table(final_data_filtered,paste0(.res,"tractaments.csv"),sep=";")
-
-###########################################################
-# Juntar prevTrt.processed.rds i currentTrt.processed.rds #
-###########################################################
-
+# 1.3 Juntar prevTrt.processed.rds i currentTrt.processed.rds 
 rm(list=ls())
 # Carregar els datasets
 prevTrt <- readRDS(paste0(.res,"prevTrt.processed.rds"))
@@ -151,10 +132,212 @@ rm(list = setdiff(ls(), c("all_treatments_unique")))
 
 saveRDS(all_treatments_unique,paste0(.res,"prev_current_processed.rds"))
 
+
+
+
+# 1.4 Tractament de dades no biològics actuals       
+rm(list=ls())
+data <- readRDS(paste0(.dat,"currentTrt.0.rds"))
+df <- data$dataset
+
+#seleccionar variables i renombrar per treballar cómodament
+subset_data <- df %>%
+  select(any_of(c("patient_id", "treat_type", "treat_corti_start", "treat_famm_type", "treat_famm_start", "treat_bio_type", "treat_bio_start"))) %>%
+  
+  rename(
+    subject_id = patient_id,
+    treatment = treat_type,
+    s_date_corti = treat_corti_start,
+    famm_type = treat_famm_type,
+    s_date_famm = treat_famm_start,
+    bio_type = treat_bio_type,
+    s_date_bio = treat_bio_start
+    
+  )
+
+#Convertir a data els labels
+subset_data$s_date_corti <- as.Date(subset_data$s_date_corti)
+subset_data$s_date_famm <- as.Date(subset_data$s_date_famm)
+subset_data$s_date_bio <- as.Date(subset_data$s_date_bio)
+
+# Pacients amb algun tractament biològic
+patients_with_treatment <- subset_data %>%
+  filter(!is.na(treatment) & treatment != "") %>%
+  pull(subject_id) %>%
+  unique()
+
+# Si el pacient té tractament → només mantenim les files amb tractament
+# Si el pacient NO té cap tractament → mantenim una sola fila sense tractament
+final_data <- subset_data %>%
+  filter(
+    # Manté les files amb tractament
+    (!is.na(treatment) & treatment != "") |
+      # O bé pacients sense tractament, sempre que no estiguin a la llista dels que sí en tenen
+      !(subject_id %in% patients_with_treatment)
+  ) %>%
+  distinct(subject_id, treatment, .keep_all = TRUE)
+
+#crear columna famms i borrar les altres
+final_data <- final_data %>%
+  mutate(
+    famm = coalesce(famm_type, bio_type)
+  )
+final_data <- final_data %>%
+  select(-famm_type, -bio_type)
+
+
+#crear columna data inici i borrar les altres
+final_data <- final_data %>%
+  mutate(
+    data_inici = coalesce(s_date_corti, s_date_famm, s_date_bio)
+  )
+final_data <- final_data %>%
+  select(-s_date_corti, -s_date_famm, -s_date_bio)
+
+saveRDS(final_data,paste0(.res,"currentTrt.alltreatments_processed.rds"))
+
+
+
+# 1.5 Tractament de dades no biològics previs 
+rm(list=ls())
+data <- readRDS(paste0(.dat,"prevTrt.0.rds"))
+df <- data$dataset
+
+#seleccionar variables i renombrar per treballar cómodament
+subset_data <- df %>%
+  select(any_of(c("patient_id", "prev_treat_type", "prev_treat_corti_start", 
+                  "prev_treat_corti_end", "prev_treat_famm_type", 
+                  "prev_treat_fame_start", "prev_treat_famm_end", 
+                  "treat_famm_end_reason","treat_famm_end_reason_other", 
+                  "prev_treat_bio_type", "prev_treat_bio_start", 
+                  "prev_treat_bio_end", "treat_bio_end_reason", 
+                  "treat_bio_end_reason_other"))) %>%
+  
+  rename(
+    subject_id = patient_id,
+    treatment = prev_treat_type,
+    s_date_corti = prev_treat_corti_start,
+    e_date_corti = prev_treat_corti_end,
+    famm_type = prev_treat_famm_type,
+    s_date_famm = prev_treat_fame_start,
+    e_date_famm = prev_treat_famm_end,
+    e_famm_reason = treat_famm_end_reason,
+    e_famm_reason_o = treat_famm_end_reason_other,
+    bio_type = prev_treat_bio_type,
+    s_date_bio = prev_treat_bio_start,
+    e_date_bio = prev_treat_bio_end,
+    e_bio_reason = treat_bio_end_reason,
+    e_bio_reason_o = treat_bio_end_reason_other
+    
+  )
+
+# Primero, reemplazar "NI" por NA (asegurándonos que es carácter)
+subset_data <- subset_data %>%
+  mutate(across(c(s_date_corti, e_date_corti, s_date_famm, e_date_famm, 
+                  s_date_bio, e_date_bio), 
+                ~na_if(as.character(.), "NI"))) %>%
+  mutate(across(c(s_date_corti, e_date_corti, s_date_famm, e_date_famm, 
+                  s_date_bio, e_date_bio), as.Date))
+
+
+# Pacients amb algun tractament biològic
+patients_with_treatment <- subset_data %>%
+  filter(!is.na(treatment) & treatment != "") %>%
+  pull(subject_id) %>%
+  unique()
+
+# Si el pacient té tractament → només mantenim les files amb tractament
+# Si el pacient NO té cap tractament → mantenim una sola fila sense tractament
+final_data <- subset_data %>%
+  filter(
+    # Manté les files amb tractament
+    (!is.na(treatment) & treatment != "") |
+      # O bé pacients sense tractament, sempre que no estiguin a la llista dels que sí en tenen
+      !(subject_id %in% patients_with_treatment)
+  ) %>%
+  distinct(subject_id, treatment, .keep_all = TRUE)
+
+#crear columna famms i borrar les altres
+
+  final_data <- final_data %>%
+  mutate(famm = coalesce(famm_type, bio_type),
+         data_inici = coalesce(s_date_corti, s_date_famm, s_date_bio),
+         data_final = coalesce(e_date_corti, e_date_famm, e_date_bio),
+         end_reason = coalesce(e_famm_reason, e_bio_reason),
+         end_reason_other = coalesce(e_famm_reason_o, e_bio_reason_o))
+  
+  final_data <- final_data %>% 
+    select(-famm_type, -bio_type,
+           -s_date_corti, -s_date_famm, -s_date_bio,
+           -e_date_corti, -e_date_famm, -e_date_bio,
+           -e_famm_reason, -e_bio_reason,
+           -e_famm_reason_o, -e_bio_reason_o)
+
+saveRDS(final_data,paste0(.res,"prevTrt.alltreatments_processed.rds"))
+
+
+# 1.6 Juntar tractaments 
+rm(list=ls())
+# Carregar els datasets
+prevTrt <- readRDS(paste0(.res,"prevTrt.alltreatments_processed.rds"))
+currentTrt <- readRDS(paste0(.res,"currentTrt.alltreatments_processed.rds"))
+
+# Definim la funció per convertir labelled a Date
+convert_to_date <- function(x) {
+  if ("labelled" %in% class(x)) {
+    # Convertir primero a character, luego a Date
+    x <- as.character(x)
+  }
+  as.Date(x)
+}
+
+# Convertir columnes de dates en prevTrt
+prevTrt <- prevTrt %>%
+  mutate(
+    data_inici = convert_to_date(data_inici),
+    data_final = convert_to_date(data_final)
+  )
+
+# Convertir columnes de dates en currentTrt
+currentTrt <- currentTrt %>%
+  mutate(
+    data_inici = convert_to_date(data_inici)
+  )
+currentTrt$data_final <- as.Date(NA)
+
+# Asegurar tipos compatibles
+if ("end_reason_other" %in% names(prevTrt)) {
+  prevTrt$end_reason_other <- as.character(prevTrt$end_reason_other)
+}
+if (!"end_reason_other" %in% names(currentTrt)) {
+  currentTrt$end_reason_other <- NA_character_
+}
+
+# Unir datasets
+all_treatments <- bind_rows(prevTrt, currentTrt)
+
+all_treatments <- all_treatments %>%
+  mutate(across(where(is.character), ~ na_if(trimws(.x), "")))
+
+all_treatments <- all_treatments %>%
+  filter(!(is.na(data_inici) & is.na(data_final)))
+
+# Eliminar duplicatss
+all_treatments_processed <- all_treatments %>%
+  distinct(subject_id, treatment, famm, data_inici, data_final, end_reason, end_reason_other, .keep_all = TRUE)
+
+# Eliminar tots els altres objectes de l'entorn
+rm(list = setdiff(ls(), c("all_treatments_processed")))
+
+saveRDS(all_treatments_processed,paste0(.res,"prev_current_alltreatments_processed.rds"))
+
+
+
 #####################################################
-# Crear sunburst general                            #
+# BLOC 2: Gràfics sunburst                          #
 #####################################################
 
+# Gràfic 1: Pathway farmacològic
 rm(list=ls())
 df <- readRDS(paste0(.res,"prev_current_processed.rds"))
 
@@ -278,15 +461,9 @@ page <- tags$html(
 html_file <- paste0(.res, "sunburst_pathway_farmacologic.html")
 htmltools::save_html(page, file = html_file)
 
-# Mostrar ruta sense error
-cat("Archivo HTML creado en:", normalizePath(html_file, mustWork = FALSE), "\n")
 
 
-
-###################################################
-# Agrupar fàrmacs en grups                        #
-###################################################
-
+# Gràfic 2: Subgrups de fàrmacs                     
 rm(list=ls())
 # Carregar dades
 df <- readRDS(paste0(.res,"prev_current_processed.rds"))
@@ -381,227 +558,8 @@ page <- tags$html(
 html_file <- paste0(.res, "sunburst_subgrups_farmacs.html")
 htmltools::save_html(page, file = html_file)
 
-cat("Archivo HTML creado en:", normalizePath(html_file), "\n")
 
-
-#########################################################################
-#########################################################################
-#########################################################################
-
-
-##################################################
-# Tractament de dades no biològics actuals       #
-##################################################
-
-
-rm(list=ls())
-data <- readRDS(paste0(.dat,"currentTrt.0.rds"))
-df <- data$dataset
-
-#seleccionar variables i renombrar per treballar cómodament
-subset_data <- df %>%
-  select(any_of(c("patient_id", "treat_type", "treat_corti_start", "treat_famm_type", "treat_famm_start", "treat_bio_type", "treat_bio_start"))) %>%
-  
-  rename(
-    subject_id = patient_id,
-    treatment = treat_type,
-    s_date_corti = treat_corti_start,
-    famm_type = treat_famm_type,
-    s_date_famm = treat_famm_start,
-    bio_type = treat_bio_type,
-    s_date_bio = treat_bio_start
-    
-  )
-
-#Convertir a data els labels
-subset_data$s_date_corti <- as.Date(subset_data$s_date_corti)
-subset_data$s_date_famm <- as.Date(subset_data$s_date_famm)
-subset_data$s_date_bio <- as.Date(subset_data$s_date_bio)
-
-# Pacients amb algun tractament biològic
-patients_with_treatment <- subset_data %>%
-  filter(!is.na(treatment) & treatment != "") %>%
-  pull(subject_id) %>%
-  unique()
-
-# Si el pacient té tractament → només mantenim les files amb tractament
-# Si el pacient NO té cap tractament → mantenim una sola fila sense tractament
-final_data <- subset_data %>%
-  filter(
-    # Manté les files amb tractament
-    (!is.na(treatment) & treatment != "") |
-      # O bé pacients sense tractament, sempre que no estiguin a la llista dels que sí en tenen
-      !(subject_id %in% patients_with_treatment)
-  ) %>%
-  distinct(subject_id, treatment, .keep_all = TRUE)
-
-#crear columna famms i borrar les altres
-final_data <- final_data %>%
-  mutate(
-    famm = coalesce(famm_type, bio_type)
-  )
-final_data <- final_data %>%
-  select(-famm_type, -bio_type)
-
-
-#crear columna data inici i borrar les altres
-final_data <- final_data %>%
-  mutate(
-    data_inici = coalesce(s_date_corti, s_date_famm, s_date_bio)
-  )
-final_data <- final_data %>%
-  select(-s_date_corti, -s_date_famm, -s_date_bio)
-
-saveRDS(final_data,paste0(.res,"currentTrt.alltreatments_processed.rds"))
-
-
-###########################################
-# Tractament de dades no biològics previs #
-###########################################
-
-rm(list=ls())
-data <- readRDS(paste0(.dat,"prevTrt.0.rds"))
-df <- data$dataset
-
-#seleccionar variables i renombrar per treballar cómodament
-subset_data <- df %>%
-  select(any_of(c("patient_id", "prev_treat_type", "prev_treat_corti_start", 
-                  "prev_treat_corti_end", "prev_treat_famm_type", 
-                  "prev_treat_fame_start", "prev_treat_famm_end", 
-                  "treat_famm_end_reason","treat_famm_end_reason_other", 
-                  "prev_treat_bio_type", "prev_treat_bio_start", 
-                  "prev_treat_bio_end", "treat_bio_end_reason", 
-                  "treat_bio_end_reason_other"))) %>%
-  
-  rename(
-    subject_id = patient_id,
-    treatment = prev_treat_type,
-    s_date_corti = prev_treat_corti_start,
-    e_date_corti = prev_treat_corti_end,
-    famm_type = prev_treat_famm_type,
-    s_date_famm = prev_treat_fame_start,
-    e_date_famm = prev_treat_famm_end,
-    e_famm_reason = treat_famm_end_reason,
-    e_famm_reason_o = treat_famm_end_reason_other,
-    bio_type = prev_treat_bio_type,
-    s_date_bio = prev_treat_bio_start,
-    e_date_bio = prev_treat_bio_end,
-    e_bio_reason = treat_bio_end_reason,
-    e_bio_reason_o = treat_bio_end_reason_other
-    
-  )
-
-# Primero, reemplazar "NI" por NA (asegurándonos que es carácter)
-subset_data <- subset_data %>%
-  mutate(across(c(s_date_corti, e_date_corti, s_date_famm, e_date_famm, 
-                  s_date_bio, e_date_bio), 
-                ~na_if(as.character(.), "NI"))) %>%
-  mutate(across(c(s_date_corti, e_date_corti, s_date_famm, e_date_famm, 
-                  s_date_bio, e_date_bio), as.Date))
-
-
-# Pacients amb algun tractament biològic
-patients_with_treatment <- subset_data %>%
-  filter(!is.na(treatment) & treatment != "") %>%
-  pull(subject_id) %>%
-  unique()
-
-# Si el pacient té tractament → només mantenim les files amb tractament
-# Si el pacient NO té cap tractament → mantenim una sola fila sense tractament
-final_data <- subset_data %>%
-  filter(
-    # Manté les files amb tractament
-    (!is.na(treatment) & treatment != "") |
-      # O bé pacients sense tractament, sempre que no estiguin a la llista dels que sí en tenen
-      !(subject_id %in% patients_with_treatment)
-  ) %>%
-  distinct(subject_id, treatment, .keep_all = TRUE)
-
-#crear columna famms i borrar les altres
-
-  final_data <- final_data %>%
-  mutate(famm = coalesce(famm_type, bio_type),
-         data_inici = coalesce(s_date_corti, s_date_famm, s_date_bio),
-         data_final = coalesce(e_date_corti, e_date_famm, e_date_bio),
-         end_reason = coalesce(e_famm_reason, e_bio_reason),
-         end_reason_other = coalesce(e_famm_reason_o, e_bio_reason_o))
-  
-  final_data <- final_data %>% 
-    select(-famm_type, -bio_type,
-           -s_date_corti, -s_date_famm, -s_date_bio,
-           -e_date_corti, -e_date_famm, -e_date_bio,
-           -e_famm_reason, -e_bio_reason,
-           -e_famm_reason_o, -e_bio_reason_o)
-
-saveRDS(final_data,paste0(.res,"prevTrt.alltreatments_processed.rds"))
-  
-
-#################################
-
-rm(list=ls())
-# Carregar els datasets
-prevTrt <- readRDS(paste0(.res,"prevTrt.alltreatments_processed.rds"))
-currentTrt <- readRDS(paste0(.res,"currentTrt.alltreatments_processed.rds"))
-
-# Definim la funció per convertir labelled a Date
-convert_to_date <- function(x) {
-  if ("labelled" %in% class(x)) {
-    # Convertir primero a character, luego a Date
-    x <- as.character(x)
-  }
-  as.Date(x)
-}
-
-# Convertir columnes de dates en prevTrt
-prevTrt <- prevTrt %>%
-  mutate(
-    data_inici = convert_to_date(data_inici),
-    data_final = convert_to_date(data_final)
-  )
-
-# Convertir columnes de dates en currentTrt
-currentTrt <- currentTrt %>%
-  mutate(
-    data_inici = convert_to_date(data_inici)
-  )
-currentTrt$data_final <- as.Date(NA)
-
-# Asegurar tipos compatibles
-if ("end_reason_other" %in% names(prevTrt)) {
-  prevTrt$end_reason_other <- as.character(prevTrt$end_reason_other)
-}
-if (!"end_reason_other" %in% names(currentTrt)) {
-  currentTrt$end_reason_other <- NA_character_
-}
-
-# Unir datasets
-all_treatments <- bind_rows(prevTrt, currentTrt)
-
-all_treatments <- all_treatments %>%
-  mutate(across(where(is.character), ~ na_if(trimws(.x), "")))
-
-all_treatments <- all_treatments %>%
-  filter(!(is.na(data_inici) & is.na(data_final)))
-
-# Eliminar duplicatss
-all_treatments_processed <- all_treatments %>%
-  distinct(subject_id, treatment, famm, data_inici, data_final, end_reason, end_reason_other, .keep_all = TRUE)
-
-# Eliminar tots els altres objectes de l'entorn
-rm(list = setdiff(ls(), c("all_treatments_processed")))
-
-saveRDS(all_treatments_processed,paste0(.res,"prev_current_alltreatments_processed.rds"))
-
-###################################
-###################################
-###################################
-
-
-
-
-
-
-
+# Gràfic 3: tots els tractaments
 rm(list=ls())
 # Carregar els datasets
 df <- readRDS(paste0(.res, "prev_current_alltreatments_processed.rds"))
@@ -675,19 +633,10 @@ html_file <- paste0(.res, "sunburst_alltreatments.html")
 htmltools::save_html(page, file = html_file)
 
 
-#############################################
-#############################################
-#############################################
 
-##############################################################
-# Crear combinacions de tractaments per pacient i període    #
-# amb tractaments actius i eliminant NA no informatius       #
-##############################################################
-
+# Gràfic 4: Tractaments agrupats per subtipus i per període
 rm(list = ls())
 
-
-# ─── 0️⃣ Dataset ────────────────────────────────────────────────
 df <- readRDS(paste0(.res, "prev_current_alltreatments_processed.rds"))
 
 df <- df %>%
@@ -719,7 +668,6 @@ df <- df %>%
   ) %>%
   select(subject_id, categoria, data_inici, data_final)
 
-# ─── 3️⃣ Funció per combinar tractaments ────────────────────────
 get_combinations <- function(patient_data) {
   if (nrow(patient_data) == 0) return(NULL)
   
@@ -764,8 +712,6 @@ get_combinations <- function(patient_data) {
   
   bind_rows(result)
 }
-
-# ─── 4️⃣ Aplicar i comptar ─────────────────────────────────────
 combinations_df <- df %>%
   group_split(subject_id) %>%
   lapply(get_combinations) %>%
@@ -782,7 +728,6 @@ df_counts <- df_paths %>%
   count(path, name = "count") %>%
   mutate(path = gsub(" > ", "-", path))
 
-# ─── 5️⃣ Crear gràfic ─────────────────────────────────────────
 sb <- sunburst(df_counts, count = TRUE, width = 720, height = 605, 
                legend = list(w = 300))
 
@@ -810,8 +755,6 @@ sb <- htmlwidgets::onRender(
   "
 )
 
-# ─── 6️⃣ CSS per estil i alineació ────────────────────────────
-
 # Construir pàgina HTML
 page <- tags$html(
   tags$head(
@@ -831,46 +774,19 @@ page <- tags$html(
   )
 )
 
-# ─── 7️⃣ Guardar HTML ─────────────────────────────────────────
-
 html_file <- paste0(.res, "sunburst_alltreatments_combinat.html")
 htmltools::save_html(page, file = html_file)
 cat("✅ HTML generat correctament a:", html_file, "\n")
 
 
-
-
-
-
-
-
-###################################################################
-
-
-
-
-
-
-
-###################################################################
-
-
-
-
-
-
-
-###################################################################
-
-
-
-#ShinyApp
-
+#########################################################
+# BLOC 3: Shinyapp                                      #
+#########################################################
+ 
+#ShinyApp en local
 rm(list = ls())
 
-# ─────────────────────────────────────────────
-# 🖥️ INTERFÍCIE (UI)
-# ─────────────────────────────────────────────
+#(UI)
 ui <- fluidPage(
   tags$head(
     tags$style(HTML("
@@ -931,9 +847,8 @@ ui <- fluidPage(
   )
 )
 
-# ─────────────────────────────────────────────
-# ⚙️ SERVIDOR
-# ─────────────────────────────────────────────
+
+# SERVIDOR
 server <- function(input, output, session) {
   
   addResourcePath("res", .res)
@@ -960,9 +875,6 @@ server <- function(input, output, session) {
   output$sunburst4 <- renderSunburstFrame("sunburst_alltreatments_combinat.html")
 }
 
-# ─────────────────────────────────────────────
-# 🚀 EXECUTAR APP
-# ─────────────────────────────────────────────
 shinyApp(ui, server)
 
 
