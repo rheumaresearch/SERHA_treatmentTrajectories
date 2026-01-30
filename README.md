@@ -23,7 +23,7 @@ Conté el codi principal del projecte escrit en R.
 ### `lib/`
 Carpeta generada automàticament durant l’execució del projecte. Conté fitxers interns necessaris per al correcte funcionament de l’entorn de treball i de les dependències utilitzades en R.
 
-### `resultats/`
+### `results/`
 Inclou els resultats finals del projecte, corresponents als **quatre gràfics interactius de tipus *sunburst*** exportats en format **HTML**, que representen els diferents nivells d’agrupació dels itineraris farmacològics.
 
 ## Gestió de dades clíniques
